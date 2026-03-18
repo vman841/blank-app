@@ -294,7 +294,7 @@ def main():
 
     # Authentication
     authenticator, credentials = get_authenticator()
-    name, auth_status, username = authenticator.login("🔐 Login", "main")
+    name, auth_status, username = authenticator.login(location="main")
 
     if auth_status is False:
         st.error("❌ Wrong credentials")
@@ -305,7 +305,7 @@ def main():
 
     # Success! Show UI
     st.sidebar.success(f"👋 {name}")
-    st.sidebar.button("🚪 Logout", on_click=lambda: authenticator.logout("Logout", "sidebar") or st.rerun())
+    st.sidebar.button("🚪 Logout", on_click=lambda: authenticator.logout(location="sidebar") or st.rerun())
 
     user_role = credentials["usernames"][username]["role"]
 
