@@ -39,7 +39,11 @@ def write_sheet(sheet_name: str, df: pd.DataFrame):
     conn = get_conn()
     conn.update(worksheet=sheet_name, data=df)
 
+import bcrypt  # add this at the top of the file
 
+def hash_password(plain: str) -> str:
+    """Pure bcrypt hash — works independently of stauth version."""
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 # ══════════════════════════════════════════════
 #  One-time sheet initialisation
 # ══════════════════════════════════════════════
@@ -57,7 +61,7 @@ def init_sheets():
             "username": "admin",
             "name":     "Administrator",
             "email":    "admin@example.com",
-            "password": "admin123",   # plain text – will be auto-hashed in memory
+            "password": hash_password("admin123"),   # plain text – will be auto-hashed in memory
             "role":     "admin",
         }])
         write_sheet("users", users_df)
@@ -166,7 +170,7 @@ def admin_panel():
                 "username": new_username.strip(),
                 "name":     new_name.strip(),
                 "email":    new_email.strip() or f"{new_username.strip()}@example.com",
-                "password": new_password,     # plain text; auto-hashed in memory
+                "password": hash_password(new_password),     # plain text; auto-hashed in memory
                 "role":     role,
             }
             users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)

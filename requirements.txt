@@ -2,3 +2,4 @@ streamlit
 streamlit-authenticator
 st-gsheets-connection
 pandas>=2.0.0
+bcrypt
