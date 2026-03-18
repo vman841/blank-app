@@ -277,35 +277,38 @@ def items_ui():
 def main():
     st.title("🗑️ Bin Inventory App")
 
-    # ONE-TIME INITIALIZATION (quota safe)
+    # ONE-TIME INITIALIZATION
     if "sheets_initialized" not in st.session_state:
-        with st.spinner("🔄 Initializing sheets (one time only)..."):
-            try:
-                init_users_if_empty()
-                init_bins_if_empty()
-                init_items_if_empty()
-                st.session_state.sheets_initialized = True
-                st.success("✅ Ready! Login below.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Setup failed: {e}")
-                st.info("👉 Create sheets: 'users', 'bins', 'items' with proper headers")
-                return
+        with st.spinner("🔄 Initializing..."):
+            init_users_if_empty()
+            init_bins_if_empty()
+            init_items_if_empty()
+            st.session_state.sheets_initialized = True
+            st.rerun()
 
-    # Authentication
+    # Authentication - CORRECT SESSION STATE PATTERN
     authenticator, credentials = get_authenticator()
-    name, auth_status, username = authenticator.login(location="main")
+    authenticator.login(location="main")
 
-    if auth_status is False:
+    # Check session_state (not return value)
+    if st.session_state.get("authentication_status") is False:
         st.error("❌ Wrong credentials")
         return
-    elif auth_status is None:
-        st.info("👤 Enter your credentials")
+    elif st.session_state.get("authentication_status") is None:
+        st.info("👤 Please login")
         return
 
-    # Success! Show UI
+    # Success!
+    name = st.session_state.get("name", "User")
+    username = st.session_state.get("username", "")
+    user_role = credentials["usernames"][username]["role"]
+
     st.sidebar.success(f"👋 {name}")
-    st.sidebar.button("🚪 Logout", on_click=lambda: authenticator.logout(location="sidebar") or st.rerun())
+    if st.sidebar.button("🚪 Logout"):
+        authenticator.logout(location="sidebar")
+        st.rerun()
+
+    # Your tabs/UI code here...
 
     user_role = credentials["usernames"][username]["role"]
 
