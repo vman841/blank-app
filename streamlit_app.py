@@ -132,7 +132,7 @@ def get_authenticator():
         cookie_name="bin_app_cookie",
         cookie_key="bin_app_s3cur3_k3y",
         cookie_expiry_days=7,
-        auto_hash=True,   # plain text passwords hashed in memory automatically
+        auto_hash=False,   # plain text passwords hashed in memory automatically
     )
     return authenticator, credentials
 
