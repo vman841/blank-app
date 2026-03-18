@@ -1,71 +1,85 @@
+"""
+🗑️ Bin Inventory App - Complete Streamlit app with Google Sheets backend
+Ready to deploy to Streamlit Cloud!
+"""
+
 import streamlit as st
 import pandas as pd
 import streamlit_authenticator as stauth
 from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="Bin Inventory App", layout="wide")
+st.set_page_config(
+    page_title="SmartBins",
+    page_icon="🗑️",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# ---------- Helpers for Google Sheets ----------
-
+# ---------- Google Sheets Connection ----------
 @st.cache_resource
 def get_conn():
+    """Get Google Sheets connection."""
     return st.connection("gsheets", type=GSheetsConnection)
 
 def load_sheet(sheet_name: str) -> pd.DataFrame:
+    """Load sheet as DataFrame."""
     conn = get_conn()
     df = conn.read(worksheet=sheet_name)
-    if df is None:
+    if df is None or df.empty:
         df = pd.DataFrame()
-    df = df.dropna(how="all")
     return df
 
 def write_sheet(sheet_name: str, df: pd.DataFrame):
+    """Write DataFrame to sheet."""
     conn = get_conn()
     conn.update(worksheet=sheet_name, data=df)
 
-# ---------- Initialization helpers ----------
+# ---------- Initialization (runs ONCE) ----------
+def init_users_if_empty():
+    users_df = load_sheet("users")
+    if users_df.empty:
+        cols = ["username", "name", "password_hash", "role"]
+        write_sheet("users", pd.DataFrame(columns=cols))
 
 def init_bins_if_empty():
     bins_df = load_sheet("bins")
     if bins_df.empty:
         data = {
             "bin_id": list(range(1, 11)),
-            "bin_name": [f"Bin {i}" for i in range(1, 11)],
+            "bin_name": [f"Bin {i}" for i in range(1, 11)]
         }
-        bins_df = pd.DataFrame(data)
-        write_sheet("bins", bins_df)
+        write_sheet("bins", pd.DataFrame(data))
 
 def init_items_if_empty():
     items_df = load_sheet("items")
     if items_df.empty:
         cols = ["item_id", "bin_id", "item_name", "quantity", "category"]
-        items_df = pd.DataFrame(columns=cols)
-        write_sheet("items", items_df)
-
-def init_users_if_empty():
-    users_df = load_sheet("users")
-    if users_df.empty:
-        # Empty – you should create first admin user manually in sheet.
-        # We just ensure columns exist.
-        cols = ["username", "name", "password_hash", "role"]
-        users_df = pd.DataFrame(columns=cols)
-        write_sheet("users", users_df)
+        write_sheet("items", pd.DataFrame(columns=cols))
 
 # ---------- Authentication ----------
-
 def load_credentials_from_sheet():
     users_df = load_sheet("users")
     if users_df.empty:
         return {"usernames": {}}
 
+    # Ensure columns exist
+    for col in ["username", "name", "password_hash", "role"]:
+        if col not in users_df.columns:
+            users_df[col] = ""
+
+    # Drop invalid rows
+    users_df = users_df.dropna(subset=["username", "password_hash"])
+    
     creds = {"usernames": {}}
     for _, row in users_df.iterrows():
-        username = str(row["username"])
-        creds["usernames"][username] = {
-            "name": row["name"],
-            "password": row["password_hash"],
-            "role": row.get("role", "user"),
-        }
+        username = str(row["username"]).strip()
+        password_hash = str(row["password_hash"]).strip()
+        if username and password_hash:
+            creds["usernames"][username] = {
+                "name": str(row["name"]).strip(),
+                "password": password_hash,
+                "role": str(row.get("role", "user")).strip() or "user"
+            }
     return creds
 
 def get_authenticator():
@@ -73,250 +87,237 @@ def get_authenticator():
     authenticator = stauth.Authenticate(
         credentials,
         "bin_app_cookie",
-        "bin_app_signature_key",
-        cookie_expiry_days=7,
+        "bin_app_signature_key", 
+        cookie_expiry_days=7
     )
     return authenticator, credentials
 
-# ---------- User management (admin only) ----------
-
-def add_user(username: str, name: str, plain_password: str, role: str):
-    users_df = load_sheet("users")
-    if "username" not in users_df.columns:
-        users_df = pd.DataFrame(columns=["username", "name", "password_hash", "role"])
-
-    if username in users_df["username"].astype(str).tolist():
-        st.error("Username already exists")
-        return
-
-    hashed_password = stauth.Hasher([plain_password]).generate()[0]
-    new_row = {
-        "username": username,
-        "name": name,
-        "password_hash": hashed_password,
-        "role": role,
-    }
-    users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)
-    write_sheet("users", users_df)
-    st.success(f"User '{username}' added successfully")
-
+# ---------- Admin Panel ----------
 def admin_panel():
-    st.subheader("Admin Panel - User Management")
-    with st.expander("Create new user", expanded=True):
-        new_name = st.text_input("Full name")
-        new_username = st.text_input("Username")
-        new_password = st.text_input("Password", type="password")
-        role = st.selectbox("Role", ["user", "admin"])
-
-        if st.button("Create user"):
-            if not (new_name and new_username and new_password):
-                st.error("All fields are required")
+    st.subheader("🔧 Admin - User Management")
+    
+    with st.expander("➕ Create new user", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            new_username = st.text_input("Username")
+            new_name = st.text_input("Full name")
+        with col2:
+            new_password = st.text_input("Password", type="password")
+            role = st.selectbox("Role", ["user", "admin"])
+        
+        if st.button("Create user", use_container_width=True):
+            if new_username and new_password and new_name:
+                try:
+                    hashed = stauth.utilities.hasher.Hasher([new_password]).generate()[0]
+                    users_df = load_sheet("users")
+                    new_row = {
+                        "username": new_username,
+                        "name": new_name,
+                        "password_hash": hashed,
+                        "role": role
+                    }
+                    users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)
+                    write_sheet("users", users_df)
+                    st.success(f"✅ User '{new_username}' created!")
+                    st.rerun()
+                except:
+                    st.error("❌ Failed to create user")
             else:
-                add_user(new_username, new_name, new_password, role)
+                st.error("❌ All fields required")
 
-    st.markdown("---")
-    st.subheader("Existing users")
+    # Show users table
     users_df = load_sheet("users")
-    if users_df.empty:
-        st.info("No users found")
-    else:
-        st.dataframe(users_df[["username", "name", "role"]])
+    if not users_df.empty:
+        st.subheader("👥 Existing users")
+        st.dataframe(users_df[["username", "name", "role"]], use_container_width=True)
 
-# ---------- Bins management ----------
-
+# ---------- Bins UI ----------
+@st.cache_data
 def load_bins():
-    bins_df = load_sheet("bins")
-    if bins_df.empty:
+    df = load_sheet("bins")
+    if df.empty:
         init_bins_if_empty()
-        bins_df = load_sheet("bins")
-    bins_df["bin_id"] = bins_df["bin_id"].astype(int)
-    return bins_df
+        df = load_sheet("bins")
+    return df
 
 def add_bin(bin_name: str):
     bins_df = load_bins()
-    if "bin_id" not in bins_df.columns or bins_df.empty:
-        next_id = 1
-    else:
-        next_id = bins_df["bin_id"].max() + 1
+    next_id = bins_df["bin_id"].max() + 1 if not bins_df.empty else 1
     new_row = {"bin_id": next_id, "bin_name": bin_name}
     bins_df = pd.concat([bins_df, pd.DataFrame([new_row])], ignore_index=True)
     write_sheet("bins", bins_df)
-    st.success(f"Bin '{bin_name}' added")
 
 def rename_bin(bin_id: int, new_name: str):
     bins_df = load_bins()
     bins_df.loc[bins_df["bin_id"] == bin_id, "bin_name"] = new_name
     write_sheet("bins", bins_df)
-    st.success("Bin renamed")
 
 def bins_ui():
-    st.subheader("Bins")
+    st.subheader("🗂️ Bins Management")
+    
+    # Show bins
     bins_df = load_bins()
     st.dataframe(bins_df, use_container_width=True)
-
-    st.markdown("### Add new bin")
-    new_bin_name = st.text_input("New bin name")
-    if st.button("Add bin"):
-        if new_bin_name.strip():
-            add_bin(new_bin_name.strip())
-        else:
-            st.error("Bin name cannot be empty")
-
-    st.markdown("### Rename existing bin")
-    bins_df = load_bins()
+    
+    # Add bin
+    st.markdown("### ➕ Add new bin")
+    new_bin_name = st.text_input("Bin name")
+    if st.button("Add bin", use_container_width=True) and new_bin_name.strip():
+        add_bin(new_bin_name.strip())
+        st.success("✅ Bin added!")
+        st.rerun()
+    
+    # Rename bin
+    st.markdown("### ✏️ Rename bin")
     if not bins_df.empty:
-        bin_map = {f'{row["bin_name"]} (ID {row["bin_id"]})': row["bin_id"] for _, row in bins_df.iterrows()}
-        selected_label = st.selectbox("Select bin to rename", list(bin_map.keys()))
-        selected_id = bin_map[selected_label]
-        new_name = st.text_input("New name for selected bin")
-        if st.button("Rename bin"):
-            if new_name.strip():
-                rename_bin(selected_id, new_name.strip())
-            else:
-                st.error("New name cannot be empty")
-    else:
-        st.info("No bins available")
+        bin_options = {f"{row['bin_name']} (ID:{row['bin_id']})": row['bin_id'] 
+                      for _, row in bins_df.iterrows()}
+        selected = st.selectbox("Select bin", list(bin_options.keys()))
+        new_name = st.text_input("New name")
+        if st.button("Rename", use_container_width=True) and new_name.strip():
+            bin_id = bin_options[selected]
+            rename_bin(bin_id, new_name.strip())
+            st.success("✅ Bin renamed!")
+            st.rerun()
 
-# ---------- Items management ----------
-
+# ---------- Items UI ----------
+@st.cache_data
 def load_items():
-    items_df = load_sheet("items")
-    if items_df.empty:
+    df = load_sheet("items")
+    if df.empty:
         init_items_if_empty()
-        items_df = load_sheet("items")
-    if not items_df.empty:
-        items_df["item_id"] = items_df["item_id"].astype(int)
-        items_df["bin_id"] = items_df["bin_id"].astype(int)
-    return items_df
+        df = load_sheet("items")
+    return df
 
-def add_item(bin_id: int, item_name: str, quantity: str | None, category: str | None):
+def add_item(bin_id: int, item_name: str, quantity: str, category: str):
     items_df = load_items()
-    if items_df.empty or "item_id" not in items_df.columns:
-        next_id = 1
-    else:
-        next_id = items_df["item_id"].max() + 1
-
+    next_id = items_df["item_id"].max() + 1 if not items_df.empty else 1
     new_row = {
         "item_id": next_id,
         "bin_id": bin_id,
         "item_name": item_name,
-        "quantity": quantity if quantity else "",
-        "category": category if category else "",
+        "quantity": quantity,
+        "category": category
     }
     items_df = pd.concat([items_df, pd.DataFrame([new_row])], ignore_index=True)
     write_sheet("items", items_df)
-    st.success("Item added")
 
-def items_ui():
-    st.subheader("Items")
-
-    bins_df = load_bins()
-    if bins_df.empty:
-        st.error("No bins available. Please create bins first.")
-        return
-
+def search_items(query: str, bin_filter: int | None):
     items_df = load_items()
-
-    # Add item form
-    st.markdown("### Add item to bin")
-    bin_map = {f'{row["bin_name"]} (ID {row["bin_id"]})': row["bin_id"] for _, row in bins_df.iterrows()}
-    selected_bin_label = st.selectbox("Select bin", list(bin_map.keys()))
-    selected_bin_id = bin_map[selected_bin_label]
-
-    item_name = st.text_input("Item name *")
-    quantity = st.text_input("Quantity (optional)")
-    category = st.text_input("Category (optional)")
-
-    if st.button("Add item"):
-        if not item_name.strip():
-            st.error("Item name is required")
-        else:
-            add_item(selected_bin_id, item_name.strip(), quantity.strip(), category.strip())
-
-    st.markdown("### Search items")
-    search_query = st.text_input("Search text (item name or category)")
-    bin_filter_label = st.selectbox("Filter by bin (optional)", ["All"] + list(bin_map.keys()))
-    if st.button("Search"):
-        results = search_items(search_query, bins_df, items_df, bin_filter_label if bin_filter_label != "All" else None)
-        st.dataframe(results, use_container_width=True)
-
-    st.markdown("### All items")
-    merged = merge_items_bins(items_df, bins_df)
-    st.dataframe(merged, use_container_width=True)
-
-def merge_items_bins(items_df: pd.DataFrame, bins_df: pd.DataFrame) -> pd.DataFrame:
+    bins_df = load_bins()
+    
     if items_df.empty:
-        return pd.DataFrame(columns=["item_id", "bin_id", "bin_name", "item_name", "quantity", "category"])
+        return pd.DataFrame()
+    
+    # Merge with bins
     merged = items_df.merge(bins_df, on="bin_id", how="left")
-    merged = merged[["item_id", "bin_id", "bin_name", "item_name", "quantity", "category"]]
-    return merged
-
-def search_items(query: str, bins_df: pd.DataFrame, items_df: pd.DataFrame, bin_label: str | None):
-    merged = merge_items_bins(items_df, bins_df)
-    if merged.empty:
-        return merged
-
-    if bin_label:
-        # bin_label is "Bin X (ID Y)", extract ID
-        bin_id = int(bin_label.split("ID")[-1].strip(" )"))
-        merged = merged[merged["bin_id"] == bin_id]
-
+    
+    # Filter by bin
+    if bin_filter:
+        merged = merged[merged["bin_id"] == bin_filter]
+    
+    # Search
     if query:
         q = query.lower()
         mask = (
-            merged["item_name"].astype(str).str.lower().str.contains(q)
-            | merged["category"].astype(str).str.lower().str.contains(q)
+            merged["item_name"].astype(str).str.contains(q, case=False, na=False) |
+            merged["category"].astype(str).str.contains(q, case=False, na=False)
         )
         merged = merged[mask]
+    
+    return merged[["item_id", "bin_id", "bin_name", "item_name", "quantity", "category"]]
 
-    return merged
+def items_ui():
+    st.subheader("📦 Items Management")
+    
+    bins_df = load_bins()
+    if bins_df.empty:
+        st.error("❌ No bins! Create bins first.")
+        return
+    
+    # Add item form
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        bin_options = {row["bin_name"]: row["bin_id"] for _, row in bins_df.iterrows()}
+        selected_bin = st.selectbox("Select bin", list(bin_options.keys()))
+        selected_bin_id = bin_options[selected_bin]
+    
+    with col2:
+        item_name = st.text_input("Item name *")
+        quantity = st.text_input("Quantity (optional)")
+        category = st.text_input("Category (optional)")
+    
+    if st.button("➕ Add item", use_container_width=True):
+        if item_name.strip():
+            add_item(selected_bin_id, item_name.strip(), quantity, category)
+            st.success("✅ Item added!")
+            st.rerun()
+        else:
+            st.error("❌ Item name required")
+    
+    # Search
+    st.markdown("### 🔍 Search items")
+    col1, col2 = st.columns(2)
+    with col1:
+        search_query = st.text_input("Search (name/category)")
+    with col2:
+        bin_filter_name = st.selectbox("Filter by bin", ["All"] + list(bin_options.keys()))
+        bin_filter_id = bin_options.get(bin_filter_name) if bin_filter_name != "All" else None
+    
+    if st.button("Search", use_container_width=True):
+        results = search_items(search_query, bin_filter_id)
+        st.dataframe(results, use_container_width=True)
+    
+    # All items
+    st.markdown("### 📋 All items")
+    all_items = search_items("", None)
+    st.dataframe(all_items, use_container_width=True)
 
-# ---------- Main app ----------
-
+# ---------- MAIN APP ----------
 def main():
-    st.title("Bin Inventory App")
+    st.title("🗑️ Bin Inventory App")
 
-    # Initialize sheets if needed
-    init_users_if_empty()
-    init_bins_if_empty()
-    init_items_if_empty()
+    # ONE-TIME INITIALIZATION (quota safe)
+    if "sheets_initialized" not in st.session_state:
+        with st.spinner("🔄 Initializing sheets (one time only)..."):
+            try:
+                init_users_if_empty()
+                init_bins_if_empty()
+                init_items_if_empty()
+                st.session_state.sheets_initialized = True
+                st.success("✅ Ready! Login below.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Setup failed: {e}")
+                st.info("👉 Create sheets: 'users', 'bins', 'items' with proper headers")
+                return
 
+    # Authentication
     authenticator, credentials = get_authenticator()
-    name, auth_status, username = authenticator.login("Login", "main")
+    name, auth_status, username = authenticator.login("🔐 Login", "main")
 
     if auth_status is False:
-        st.error("Username/password is incorrect")
+        st.error("❌ Wrong credentials")
         return
     elif auth_status is None:
-        st.warning("Please enter your username and password")
+        st.info("👤 Enter your credentials")
         return
 
-    # Logged in
-    st.sidebar.success(f"Logged in as {name}")
-    if st.sidebar.button("Logout"):
-        authenticator.logout("Logout", "sidebar")
-        st.experimental_rerun()
+    # Success! Show UI
+    st.sidebar.success(f"👋 {name}")
+    st.sidebar.button("🚪 Logout", on_click=lambda: authenticator.logout("Logout", "sidebar") or st.rerun())
 
     user_role = credentials["usernames"][username]["role"]
 
-    # Tabs for UI
-    tabs = ["Items", "Bins"]
-    if user_role == "admin":
-        tabs.append("Admin")
+    # Tabs
+    tabs = st.tabs(["📦 Items", "🗂️ Bins"] + (["🔧 Admin"] if user_role == "admin" else []))
 
-    selected_tab = st.tabs(tabs)
-
-    # Items
-    with selected_tab[0]:
+    with tabs[0]:
         items_ui()
-
-    # Bins
-    with selected_tab[1]:
+    with tabs[1]:
         bins_ui()
-
-    # Admin
-    if user_role == "admin":
-        with selected_tab[2]:
+    if len(tabs) == 3:
+        with tabs[2]:
             admin_panel()
 
 if __name__ == "__main__":
