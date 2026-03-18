@@ -355,23 +355,27 @@ def main():
             "⚠️ Please delete or replace this account after logging in."
         )
 
-    # ── Login ──
-    authenticator, credentials = get_authenticator()
+    # ── Authentication ──
+authenticator, credentials = get_authenticator()
 
-    try:
-        authenticator.login(location="main")
-    except Exception as e:
-        st.error(f"Login error: {e}")
-        return
+# ✅ CORRECT – call login() for side effects only; it populates st.session_state
+try:
+    authenticator.login(location="main")
+except Exception as e:
+    st.error(f"Login widget error: {e}")
+    return
 
-    auth_status = st.session_state.get("authentication_status")
+# Read results from session_state, NOT from login()'s return value
+auth_status = st.session_state.get("authentication_status")
+name        = st.session_state.get("name", "User")
+username    = st.session_state.get("username", "")
 
-    if auth_status is False:
-        st.error("❌ Incorrect username or password")
-        return
-    elif auth_status is None:
-        st.info("👤 Please enter your credentials to log in")
-        return
+if auth_status is False:
+    st.error("❌ Incorrect username or password")
+    return
+elif auth_status is None:
+    st.info("👤 Please enter your credentials to log in")
+    return
 
     # ── Authenticated ──
     name     = st.session_state.get("name", "User")
