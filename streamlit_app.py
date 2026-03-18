@@ -350,38 +350,32 @@ def main():
     # ── First-run banner ──
     if st.session_state.get("first_run"):
         st.info(
-            "🆕 **First run!** A default admin account was created.  \n"
-            "**Username:** `admin`  |  **Password:** `admin123`  \n"
+            "🆕 **First run!** A default admin account was created.\n\n"
+            "**Username:** `admin`  |  **Password:** `admin123`\n\n"
             "⚠️ Please delete or replace this account after logging in."
         )
 
     # ── Authentication ──
-authenticator, credentials = get_authenticator()
+    authenticator, credentials = get_authenticator()
 
-# ✅ CORRECT – call login() for side effects only; it populates st.session_state
-try:
-    authenticator.login(location="main")
-except Exception as e:
-    st.error(f"Login widget error: {e}")
-    return
+    try:
+        authenticator.login(location="main")
+    except Exception as e:
+        st.error(f"Login widget error: {e}")
+        return
 
-# Read results from session_state, NOT from login()'s return value
-auth_status = st.session_state.get("authentication_status")
-name        = st.session_state.get("name", "User")
-username    = st.session_state.get("username", "")
+    auth_status = st.session_state.get("authentication_status")
+    name        = st.session_state.get("name", "User")
+    username    = st.session_state.get("username", "")
 
-if auth_status is False:
-    st.error("❌ Incorrect username or password")
-    return
-elif auth_status is None:
-    st.info("👤 Please enter your credentials to log in")
-    return
+    if auth_status is False:
+        st.error("❌ Incorrect username or password")
+        return
+    elif auth_status is None:
+        st.info("👤 Please enter your credentials to log in")
+        return
 
     # ── Authenticated ──
-    name     = st.session_state.get("name", "User")
-    username = st.session_state.get("username", "")
-
-    # Safe role lookup – avoids KeyError if cookie re-auth fires before credentials reload
     user_data = credentials.get("usernames", {}).get(username, {})
     roles     = user_data.get("roles", ["user"])
     user_role = roles[0] if roles else "user"
@@ -389,7 +383,6 @@ elif auth_status is None:
     with st.sidebar:
         st.success(f"👋 {name}")
         st.caption(f"Role: {user_role}")
-        # 'unrendered' executes logout logic without rendering a second stray button
         if st.button("🚪 Logout", use_container_width=True, key="logout_btn"):
             authenticator.logout(location="unrendered")
             st.rerun()
